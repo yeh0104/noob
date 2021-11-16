@@ -1,0 +1,117 @@
+---
+title: "Project"
+author: "Chia-Chun Yeh"
+date: "10/3/2021"
+output: html_document
+---
+
+Intro to dplyr:
+
+  Data transformation is often a crucial step for data analysis. It not only provides insights to the data but it also generates leads that can be analyzed in depth for later data exploration process. To transform the data into a meaningful pattern, dplyr offers a versatile, user-friendly and faster method than base R. In this project, the five important verbs of dplyr will be used to demonstrate the package. 1. filter(): to select observations from the data. 2. select(): to pick observations by their columns names. 3. arrange(): reorder the observations. 4.mutate(): create a new column with a function(s) 5.summarize(): to collapse observations into one row. It may not be helpful when it is used by itself. However, it becomes a powerful tool to see a trending pattern when it's used with group_by(). There are many other functions in the package of dplyr. However, these five functions will enable us to perform the basic data manipulation and transformation process. To download the package, install.packages("dplyr") in Rstudio/R. The data,Life Expectancy Data.csv, that will be used in this project can be downloaded from kaggle.com.
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+df<- read.csv("/Users/iAngel/Desktop/PSU/STAT 484/Project Proposal/Life Expectancy Data.csv", sep= ",",header=T, stringsAsFactors = F)
+
+```
+  Functions:
+  
+  The general syntax for the functions is as the following:
+    function(df, variable names without quotes)
+  The first argument is the input data frame (df) and the second argument can be a logical statement or a function of describing what to do with the variable. Note: the variables can be called out without the quotes! For example, if we want to look up the life expectancy in the world in each year and the status of the country, we can use select() function to easily sift through the data.
+```{r }
+nrow(select(df,Country,Life.expectancy,Year,Status))
+```
+Even though the same result can be achieved using base R, the syntax can be difficult to read and not intuitive when the code becomes complicated. 
+```{r df}
+nrow(df[ ,c("Country","Life.expectancy","Year","Status")])
+```
+Another powerful tool in the package is the %>% (pipe operator). It enables user to connect multiple functions together without setting up an extra variable or a nested function.
+Let's look at an example. How many developing countries with a life expectancy above 65?  
+
+```{r }
+select(df,Country,Life.expectancy,Year,Status) %>% filter(Life.expectancy>65&Status=="Developing") %>% nrow()
+```
+
+Note that the data frame(df) is no longer needed to be called in the subsequent pipe operator.
+
+```{r }
+df.life <- df[ ,c("Country","Life.expectancy","Year","Status","percentage.expenditure")]
+nrow(df.life[which(df.life$Life.expectancy>65 & df.life$Status=="Developing"),])
+```
+Since the years are included in the output, we want to use a function that collapse the years and take the average for each country. However, we want to keep in mind that the data is not 100% clean. NA values are still being counted. If NA values are not removed, it can cause havoc in some cases. It can be contagious! Any calculations or operations with NA value will be unknown. Also, we can start seeing base R is getting longer and harder to read.
+
+```{r }
+select(df,Country,Life.expectancy,Year,Status) %>%  filter(Life.expectancy>65&Status=="Developing") %>% group_by(Country,Status) %>% summarize(avg_life=mean(Life.expectancy, na.rm=T))
+```
+
+In base R, we need to set a variable first. Then, we can perform the aggregate function in R. It is not terribly bad in this case since we only have one variable. It will be troublesome when we are sub-setting multiple data and analyze them with different stats.
+
+```{r }
+dat <- df.life[which(df.life$Life.expectancy>65 & df.life$Status=="Developing"),]
+head(aggregate(Life.expectancy~Country+Status,dat,mean))
+```
+
+Base on the conditions we use, there are 125 developing countries with life expectancy greater than 65. Now, let's compare the percentage expenditure on health to see if higher the expenditure per capita increases the life expectancy. Then, the data will be sorted in a descending fashion to see if there is a trend in the data.
+
+```{r}
+expend <- select(df,Country,Life.expectancy,Status,percentage.expenditure) %>%  filter(Status=="Developing") %>% group_by(Country,Status) %>% summarize(n=n(),
+ avg_life=mean(Life.expectancy,na.rm=T), avg_expend=mean(percentage.expenditure, na.rm=T)) %>% arrange(desc(avg_expend)) %>% na.omit()
+expend
+```
+The function arrange() is used at the end to sort the data in a descending order.
+
+```{r message=FALSE, warning=FALSE}
+dat1 <- df.life[which(df.life$Life.expectancy&df.life$percentage.expenditure)&df.life$Status=="Developing",]
+dat1.agg <- aggregate(cbind(Life.expectancy,percentage.expenditure)~Country+Status,dat,mean)
+head(dat1.agg[order(-dat1.agg$percentage.expenditure),])
+```
+A better way to visualize the data is to use graph. There is another package called ggplot2 which is an excellent tool for data visualization. However, it is beyond the scope of this project. A base R is suffice to demonstrate the trend.
+
+```{r}
+plot(x=expend$avg_expend, y=expend$avg_life, xlab="Average Percentage Expenditure",ylab="Average Life Expectancy")
+```
+
+The data seems to have a correlation between the two. However, we have many data points with 0 in the average percentage expenditure. We will remove the points and see if the trend is clearer. Also, many data points are above 1000. Most of them are by definition of a developed country. We will remove those data points as well.
+```{r}
+developed.countries <- select(expend, Country,Status,avg_life,avg_expend) %>% filter(avg_expend>0&avg_expend>1000)
+developed.countries
+```
+
+```{r}
+expend.clean <- select(expend, Country,Status,avg_life,avg_expend) %>% filter(avg_expend>0&avg_expend<1000)
+plot(x=expend.clean$avg_expend, y=expend.clean$avg_life, xlab="Average Percentage Expenditure",ylab="Average Life Expectancy")
+```
+
+The graph seems to show a positive correlation between the expenditure on health and the life expectancy.
+Last, the mutate() function adds a new column at the end of the data frame. It can be used to create a column with function.
+
+```{r}
+mutate(expend.clean, division=avg_expend/avg_life) %>% arrange(desc(division))
+```
+
+```{r}
+division <- expend$avg_expend/expend$avg_life
+expend$division <- division
+expend
+```
+
+In base R, we need to create a vector with the calculation first. Then, we create an empty column using the $ and assign the vector to the data frame. There are many ways in base R to extend its data frame. However, they all need to create a variable first. The disadvantage is that we may run out of idea for our variable names when dealing with a large data set. The package dplyr definitely saves us a lot of time from creating multiple variables. In addition, the syntax is intuitive and easy to use when comparing to base R. Combining with another package (tidyr) from the tidyverse meta packages, they can be a powerful tool for data cleaning and manipulation.
+
+
+Reference
+
+https://r4ds.had.co.nz/ (R for Data Science)
+
+https://cran.r-project.org/web/packages/tidyverse/tidyverse.pdf 
+
+
+
+
+
+
+
+
+
+
+
+
