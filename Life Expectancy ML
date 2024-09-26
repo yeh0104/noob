@@ -1,0 +1,171 @@
+rm(list=ls())
+library(tidyverse)
+library(corrplot)
+library(car)
+library(dplyr)
+library(class)
+library(caret)
+library(data.table)
+dat <- read.csv("/Users/iAngel/Desktop/Life Expectancy Data.csv",sep= ",",
+                header=T, stringsAsFactors = F)
+#Check data
+View(dat)
+str(dat)
+
+##########################        EDA        #####################################
+
+#Check for missing data and duplication
+sum(is.na(dat))
+sum(duplicated(dat))
+colSums(is.na(dat))
+
+#Correlation Plot
+total.country <- select(dat,everything()) %>%
+  group_by(Country,Status) %>% summarise(across(4:20,mean,na.rm=T)) %>% na.omit() #take the mean of each column with numerical values
+corrplot <- cor(total.country[3:ncol(total.country)])
+corrplot(corrplot)
+#subsetting mean(life.pectancy) by country and by status
+dat.summary <- select(dat,Country,Life.expectancy,Status,Diphtheria,Polio,Schooling) %>% 
+  group_by(Country,Status) %>% 
+  summarize(Average_Life=mean(Life.expectancy, na.rm=T), 
+            Average_IPV=mean(Polio, na.rm=T),
+            Average_DTaP=mean(Diphtheria, na.rm=T),
+            Average_Schooling=mean(Schooling, na.rm=T)) %>% na.omit()
+#obtain the list of developed country by google search
+developed <- c("France","Estonia","Brunei Darussalam")
+#replace the countries on the list as "Developed"
+for (i in developed){
+  dat.summary[dat.summary$Country==i,2]<- "Developed"
+}
+View(dat.summary)
+
+#Since IPV & DTaP can be registered as 4-in-1 shot, we define both as "Vaccination coverage" and categorize them as low, medium, high.
+#use 71.75-95.88 as medium, above 95.88 as high below 71.75 as low 
+dat.summary$Vaccine_Cov <- with(dat.summary, ifelse(Average_IPV > 95.88,"High",
+                                                    ifelse(Average_IPV < 71.75,"Low", 
+                                                           ifelse(Average_IPV >=71.75 & Average_IPV <=95.88, "Medium","Other"))))
+df <- select(dat.summary,Country,Status,Average_Life,Vaccine_Cov,Average_Schooling)
+
+#is there a relationship between avg_life & avg_total.exp, use graph
+ggplot(data=df)+geom_point(mapping= aes(x=Average_Schooling, y=Average_Life, color=Status))
+#is there a relationship between avg_life & Vaccine_cov
+ggplot(data=df)+geom_boxplot(mapping=aes(x=Vaccine_Cov, y=Average_Life, fill=Vaccine_Cov))
+#boxplot between developed country and developing country
+ggplot(data=df)+geom_boxplot(mapping= aes(x=Status, y=Average_Life, fill=Status))+
+  labs(x="Developed vs Developing Countries", y="Avg Life Expectancy",
+       title="Average Life Exepectancy in Developed vs Developing Countries")
+#relationship between Average_Schooling and Vaccine_Cov
+ggplot(data=df)+geom_boxplot(mapping= aes(x=Vaccine_Cov, y=Average_Schooling, fill=Vaccine_Cov))
+#variance test for developed vs developing countries
+developed.c <- df %>% filter(Status=="Developed") %>% select(Average_Life)
+developing.c <- df %>% filter(Status=="Developing") %>% select(Average_Life)
+var.test(developed.c$Average_Life,developing.c$Average_Life)
+#t-test
+t.test(developed.c$Average_Life,developing.c$Average_Life, alternative="greater",var.equal = F)
+
+
+##############Creating the data for Modeling BAD DOES NOT WORK######################
+
+#Replace NA with the mean of the country over the years of data
+num_df<- dat[,c("Country", "GDP", "Population", "Schooling", "Income.composition.of.resources", "thinness..1.19.years", 
+                     "thinness.5.9.years", "Total.expenditure", "Diphtheria", "Polio", "BMI", "Hepatitis.B", "Alcohol", "Adult.Mortality")]
+
+df2 <- num_df %>% group_by(Country) %>% 
+  summarise_all(~(mean(., na.rm=TRUE)))  
+missing <-na.omit(df2)
+
+dat3 <- dat %>% left_join(missing,by="Country") %>% 
+  mutate(Population = if_else(!is.na(Population.y),Population.y,Population.x)) %>% 
+  select(Country, Population)
+
+#####################################################################
+datForSample <- subset(dat, select = -c(Alcohol, Hepatitis.B, Total.expenditure, GDP, Population, Income.composition.of.resources, Schooling))%>% na.omit()
+
+
+datForSample$Life.Exp.Split <- as.factor(if_else(datForSample$Life.expectancy >64, ">64", "<=64"))
+datForSample <- subset(datForSample, select = -c(Life.expectancy))
+datForSample <- na.omit(datForSample)
+summary(datForSample)
+
+#Create Stratified Sample based on Status
+set.seed(1)
+train.index <- createDataPartition(datForSample$Status, p = .8, list = FALSE)
+train <- datForSample[ train.index,]
+test  <- datForSample[-train.index,]
+LifeExpSplit.test<- datForSample[-train.index, "Life.Exp.Split"]
+
+#################Decision Tree#####################################
+library(tree)
+tree.Decision <- tree(Life.Exp.Split ~., train)
+#Use summary() to produce summary statistics
+summary(tree.Decision)
+#type in the name given to the tree object to print detailed text output
+tree.Decision
+#Plot the tree
+plot(tree.Decision)
+text(tree.Decision, pretty = 0)
+#Predict the tree and calculate the test error
+tree.pred <- predict(tree.Decision, test, type = "class")
+table(tree.pred, LifeExpSplit.test)
+(18+10)/577
+
+###################Cross validation to Prune Tree #################
+#apply cv tree to determine the optimal tree size
+cv <- cv.tree(tree.Decision, FUN = prune.misclass)
+names(cv)
+cv
+
+#plot error rate as function of size
+plot(cv$size, cv$dev, type = "b")
+
+################### Logistic Regression #################
+library(MASS)
+#fit logistic regression for ALL variables
+glm.fit <- glm(formula = Life.Exp.Split~ Status+Adult.Mortality+infant.deaths+percentage.expenditure
+               +Measles+BMI+under.five.deaths+Polio+Diphtheria+HIV.AIDS+thinness..1.19.years+thinness.5.9.years,
+                 data= datForSample, family=binomial)
+summary(glm.fit)
+#re-fit the model with variables that are significant in the training dataset
+glm.fit <- glm(formula = Life.Exp.Split~ Adult.Mortality+infant.deaths+percentage.expenditure
+              +BMI+under.five.deaths+Diphtheria+HIV.AIDS+thinness..1.19.years,
+              data= train, family=binomial)
+summary(glm.fit)
+probs <- predict(glm.fit,test,type="response")
+glm.pred <- rep("<=64",577)
+glm.pred[probs > 0.5]=">64"
+table(glm.pred,LifeExpSplit.test)
+mean(glm.pred==LifeExpSplit.test) #correct prediction for the testing dataset 93.1%
+mean(glm.pred!=LifeExpSplit.test) #test error rate 6.9%
+
+#########################   LDA    ######################
+lda.fit <- lda(Life.Exp.Split~ Adult.Mortality+infant.deaths+percentage.expenditure
+               +BMI+under.five.deaths+Diphtheria+HIV.AIDS+thinness..1.19.years, data=train)
+lda.pred <- predict(lda.fit, test)
+lda.class <- lda.pred$class
+table(lda.class,LifeExpSplit.test)
+mean(lda.class==LifeExpSplit.test) #correct prediction for the testing dataset 89.4%
+mean(lda.class!=LifeExpSplit.test) #test error rate 10.6%
+
+#########################   QDA    ######################
+qda.fit <- qda(Life.Exp.Split~ Adult.Mortality+infant.deaths+percentage.expenditure
+               +BMI+under.five.deaths+Diphtheria+HIV.AIDS+thinness..1.19.years, data=train)
+qda.class <- predict(qda.fit, test)$class
+table(qda.class,LifeExpSplit.test)
+mean(qda.class==LifeExpSplit.test) #correct prediction for the testing dataset 91.9%
+mean(qda.class!=LifeExpSplit.test) #test error rate 8.1%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
