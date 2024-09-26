@@ -6,7 +6,7 @@ library(dplyr)
 library(class)
 library(caret)
 library(data.table)
-dat <- read.csv("/Users/iAngel/Desktop/Life Expectancy Data.csv",sep= ",",
+dat <- read.csv("~/Life Expectancy Data.csv",sep= ",",
                 header=T, stringsAsFactors = F)
 #Check data
 View(dat)
