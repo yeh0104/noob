@@ -1,0 +1,111 @@
+rm(list=ls())
+library(tidyverse)
+library(corrplot)
+library(gplots)
+library(cowplot)
+library(tree)
+library(tidymodels)
+
+dat <- read.csv("~/titanic/train.csv", header=T) #train dataset
+dat1 <- read.csv("~/titanic/gender_submission.csv", header=T) # passenger survival data
+dat.test <- read.csv("~/titanic/test.csv", header=T)
+
+#=============== EDA ===============
+summary(dat) #see which variables is na
+miss.prop <- colMeans(is.na(dat))
+sapply(dat,function(x) sum(is.na(x))) #how many columns have NA values
+barplot(miss.prop,names.arg=names(miss.prop), col="skyblue", main="Proportion of Missing Values") #visualizing using bargraph
+#remove 20% of the data for easy calculation (can discuss this later)
+
+corr.mat <- select(dat, c(Age,SibSp,Parch,Fare)) %>% na.omit() %>% cor() #correlation plot
+corr.table <- cor(corr.mat)
+corr.plot <- corrplot(corr.table, method = "number")
+
+dat.clean <- select(dat,-c("Ticket","Cabin")) %>% mutate(Gender=factor(Sex), ticket_class=factor(Pclass), Survived_factor=factor(Survived), Embark=factor(Embarked)) %>% 
+  select(-c("Sex","Pclass","Survived")) %>% na.omit() # drop 3 columns, convert sex to fact, drop sex, remove na
+levels(dat.clean$Embark) <- c("Other","C","Q","S")
+
+d.survived <- filter(dat.clean,Survived_factor==1)
+d.death <- filter(dat.clean,Survived_factor==0)
+
+ggplot(d.survived, aes(x=d.survived$Gender, y=d.survived$Survived_factor,fill=Gender))+
+  geom_bar(stat="identity")+labs(title="Survival by Gender", x="Gender", y="Survival") #Survival by gender
+
+ggplot(dat.clean, aes(x=dat.clean$Age, fill=Gender))+            #Age distribution total onboard
+  geom_histogram() + labs(title="Age by Gender distribution(total onboard)", x="Age") + 
+  scale_fill_discrete(labels = c("female", "male"))
+
+ggplot(d.survived, aes(x=d.survived$Age, fill=Gender))+            #Age distribution survived
+  geom_histogram() + labs(title="Age by Gender distribution(survived)", x="Age") + 
+  scale_fill_discrete(labels = c("female", "male"))
+
+
+dat.age <- dat.clean
+dat.age$Age <- with(dat.clean, ifelse(Age <= 2 ,"Infant",              #Set up Age group def
+                         ifelse(Age > 2 & Age <= 5,"Toddler ", 
+                                ifelse(Age > 5 & Age <=13, "Children",
+                                       ifelse(Age > 13 & Age <=18, "Adolescent",
+                                              ifelse(Age > 18 & Age <= 65, "Adult",
+                                                     ifelse(Age > 65, "Elderly","Other")))))))
+dat.age <- filter(dat.age,Survived_factor==1)
+
+ggplot(dat.age,aes(x=dat.age$Age,fill=Gender)) +  #survivability bar graph by age groups.
+  geom_bar(position = "dodge")+labs(title = "Survivability by Age Group", x="Age Group",legends="Survived") + 
+  scale_fill_discrete(labels = c("Female","Male"))
+
+ggplot(dat.clean,aes(x=dat.clean$Survived_factor, fill=Embarked))+ #check if location of embarkement is relavent to the survival
+  geom_bar() + labs(title="Survival by Embarkment", x="Survive")+
+  scale_fill_discrete(labels = c("Other","C=Cherbourg", "Q = Queenstown","S = Southampton"))
+
+title <- str_split_fixed(d.survived$Name,"[,.]",n=3) #Survivalbility based on title
+part <- title[,2]
+d.survived <- cbind(d.survived,part) #add part to the new column
+table(d.survived$part)
+
+#Data cleaning
+train <- select(dat.clean, -c("PassengerId","Name","Embarked")) #Do I need to scale the data????
+dat.test <- cbind(dat.test,dat1[,2])
+colnames(dat.test)[12] <- "Survived"
+test <- select(dat.test,-c("Ticket","Cabin")) %>% mutate(Gender=factor(Sex), ticket_class=factor(Pclass), Survived_factor=factor(Survived), Embark=factor(Embarked)) %>% 
+  select(-c("Sex","Pclass","Survived","PassengerId","Name","Embarked")) %>% na.omit()
+levels(test$Embark) <- c("Other","C","Q","S")
+
+
+#=============== Logistic Model ===============
+#overall model
+logit <- glm(Survived_factor~., data=train, family=binomial)
+summary(logit)
+vif(logit)                     #checking for multicollinearity
+#Refit model with significant variables
+logit.fit <- glm(Survived_factor~Age+SibSp+Gender+ticket_class, data=train, family=binomial)
+summary(logit.fit)
+vif(logit.fit)                 #checking for multicollinearity
+#creating logistic graph
+graph.dat <- data.frame(probability.of.hd=logit.fit$fitted.values,hd=train$Survived_factor)
+graph.dat <- graph.dat[order(graph.dat$probability.of.hd, decreasing = F),]
+graph.dat$rank <- 1:nrow(graph.dat)
+ggplot(data=graph.dat, aes(x=rank, y=probability.of.hd))+geom_point(aes(color=hd), alpha=1, shape=4, stroke=2)+
+  labs(x="index", y="Predicted Probability of Survival")
+#Modeling and testing
+logit.probs <- predict(logit.fit,test,type="response")
+logit.pred <- rep(0,331)
+logit.pred[logit.probs>0.70] <- 1
+table(logit.pred, test$Survived_factor)
+mean(logit.pred == test$Survived_factor)*100. #87.6 accuracy rate
+
+#=============== Decision Tree ===============
+tree.dat <- tree()
+
+
+
+
+#=============== SVM ===============
+
+
+
+
+
+
+
+
+
