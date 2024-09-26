@@ -10,7 +10,7 @@ Intro to dplyr:
   Data transformation is often a crucial step for data analysis. It not only provides insights to the data but it also generates leads that can be analyzed in depth for later data exploration process. To transform the data into a meaningful pattern, dplyr offers a versatile, user-friendly and faster method than base R. In this project, the five important verbs of dplyr will be used to demonstrate the package. 1. filter(): to select observations from the data. 2. select(): to pick observations by their columns names. 3. arrange(): reorder the observations. 4.mutate(): create a new column with a function(s) 5.summarize(): to collapse observations into one row. It may not be helpful when it is used by itself. However, it becomes a powerful tool to see a trending pattern when it's used with group_by(). There are many other functions in the package of dplyr. However, these five functions will enable us to perform the basic data manipulation and transformation process. To download the package, install.packages("dplyr") in Rstudio/R. The data,Life Expectancy Data.csv, that will be used in this project can be downloaded from kaggle.com.
 ```{r message=FALSE, warning=FALSE}
 library(dplyr)
-df<- read.csv("/Users/iAngel/Desktop/PSU/STAT 484/Project Proposal/Life Expectancy Data.csv", sep= ",",header=T, stringsAsFactors = F)
+df<- read.csv("~/Life Expectancy Data.csv", sep= ",",header=T, stringsAsFactors = F)
 
 ```
   Functions:
